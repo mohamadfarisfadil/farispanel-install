@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mode="${1:-free}"
+
+case "$mode" in
+  free)
+    systemctl disable --now faris-editor.service 2>/dev/null || true
+    systemctl disable --now faris-terminal.service 2>/dev/null || true
+    systemctl disable --now netdata 2>/dev/null || true
+    ;;
+  pro)
+    # editor (code-server)
+    if ! command -v code-server >/dev/null 2>&1; then
+      curl -fsSL https://code-server.dev/install.sh | sh
+    fi
+    cat >/etc/systemd/system/faris-editor.service <<'UNIT'
+[Unit]
+Description=FarisPanel Code Server
+After=network.target
+[Service]
+User=www-data
+Environment=PASSWORD=changeme
+ExecStart=/usr/bin/code-server --bind-addr 127.0.0.1:8443 /var/www
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    # terminal (ttyd)
+    apt-get install -y ttyd
+    cat >/etc/systemd/system/faris-terminal.service <<'UNIT'
+[Unit]
+Description=FarisPanel Terminal (ttyd)
+After=network.target
+[Service]
+User=root
+ExecStart=/usr/bin/ttyd -p 8444 -W bash
+Restart=always
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    # monitoring (netdata)
+    apt-get install -y netdata
+
+    systemctl daemon-reload
+    systemctl enable --now faris-editor.service faris-terminal.service netdata
+    ;;
+  *) echo "usage: enable-modules [free|pro]"; exit 1;;
+esac
+
+# hardening dasar untuk semua mode
+/opt/farispanel/security/hardening.sh || true
+echo "[modules] applied for $mode"
